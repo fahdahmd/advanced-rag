@@ -27,13 +27,16 @@ Reply with exactly one word: CORRECT or INCORRECT."""
 
 
 def get_pipelines() -> dict:
-    from src import hybrid, rag_baseline
+    from src import hybrid, rag_baseline, rerank
 
-    # name -> (retrieve function, answer function)
+    # name -> (retrieve function, answer function or None)
     return {
         "baseline": (rag_baseline.retrieve, rag_baseline.answer),
         "keyword": (hybrid.retrieve_keyword, hybrid.answer_keyword),
         "hybrid": (hybrid.retrieve, hybrid.answer),
+        "rerank": (rerank.retrieve, rerank.answer),
+        # top-30 hybrid pool: the ceiling for reranking (retrieval-only)
+        "pool30": (lambda q: hybrid.retrieve(q, k=30, candidates=30), None),
     }
 
 
@@ -101,6 +104,8 @@ def main():
         questions = questions[: args.limit]
 
     retrieve_fn, answer_fn = pipelines[args.pipeline]
+    if answer_fn is None and not args.retrieval_only:
+        parser.error(f"'{args.pipeline}' only supports --retrieval-only")
     mode = "retrieval" if args.retrieval_only else "full"
     model_note = "" if args.retrieval_only else f" with {settings.llm_model}"
     print(f"Running '{args.pipeline}' ({mode}) on {len(questions)} '{args.split}' questions{model_note}")

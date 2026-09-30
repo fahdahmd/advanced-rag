@@ -68,8 +68,8 @@ def retrieve_keyword(question: str, k: int = TOP_K) -> list[dict]:
     return _hits(_keyword_positions(question, k), k)
 
 
-def retrieve(question: str, k: int = TOP_K) -> list[dict]:
-    fused = rrf([_vector_positions(question, CANDIDATES), _keyword_positions(question, CANDIDATES)])
+def retrieve(question: str, k: int = TOP_K, candidates: int = CANDIDATES) -> list[dict]:
+    fused = rrf([_vector_positions(question, candidates), _keyword_positions(question, candidates)])
     return _hits(fused, k)
 
 
