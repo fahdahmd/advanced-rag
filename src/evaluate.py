@@ -9,7 +9,7 @@ from tqdm import tqdm
 
 from src.config import ROOT, settings
 from src.corpus import normalize
-from src.llm import chat
+from src.llm import FatalLLMError, chat
 
 EVAL_PATH = ROOT / "eval" / "questions.jsonl"
 RESULTS_DIR = ROOT / "eval" / "results"
@@ -101,6 +101,9 @@ def main():
             if q["evidence"]:
                 rec["recall"] = evidence_recall(q["evidence"], out["contexts"])
             rec["correct"] = judge(q, out["answer"])
+        except FatalLLMError as e:
+            print(f"\nStopping the run: {e}")
+            sys.exit(1)
         except Exception as e:
             rec["error"] = f"{type(e).__name__}: {e}"
         results.append(rec)
