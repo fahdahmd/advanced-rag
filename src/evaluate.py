@@ -27,9 +27,14 @@ Reply with exactly one word: CORRECT or INCORRECT."""
 
 
 def get_pipelines() -> dict:
-    from src import rag_baseline
+    from src import hybrid, rag_baseline
 
-    return {"baseline": rag_baseline.answer}  # later milestones add entries here
+    # name -> (retrieve function, answer function)
+    return {
+        "baseline": (rag_baseline.retrieve, rag_baseline.answer),
+        "keyword": (hybrid.retrieve_keyword, hybrid.answer_keyword),
+        "hybrid": (hybrid.retrieve, hybrid.answer),
+    }
 
 
 def evidence_recall(evidence: list[dict], contexts: list[str]) -> float:
@@ -67,6 +72,17 @@ def summarize(results: list[dict]) -> dict:
     }
 
 
+def retrieval_summary(results: list[dict]) -> dict:
+    answerable = [r for r in results if r["recall"] is not None]
+    by_category = defaultdict(list)
+    for r in answerable:
+        by_category[r["category"]].append(r["recall"])
+    return {
+        "questions": len(answerable),
+        "recall_pct": pct([r["recall"] for r in answerable]),
+        "recall_by_category_pct": {c: pct(v) for c, v in sorted(by_category.items())},
+    }
+    
 def main():
     sys.stdout.reconfigure(encoding="utf-8")
     pipelines = get_pipelines()
@@ -74,6 +90,7 @@ def main():
     parser.add_argument("pipeline", choices=list(pipelines))
     parser.add_argument("--split", choices=["dev", "test", "all"], default="dev")
     parser.add_argument("--limit", type=int, help="only run the first N questions")
+    parser.add_argument("--retrieval-only", action="store_true", help="measure recall only, no LLM calls")
     args = parser.parse_args()
 
     lines = EVAL_PATH.read_text(encoding="utf-8").splitlines()
@@ -82,9 +99,12 @@ def main():
         questions = [q for q in questions if q["split"] == args.split]
     if args.limit:
         questions = questions[: args.limit]
-    print(f"Running '{args.pipeline}' on {len(questions)} '{args.split}' questions with {settings.llm_model}")
 
-    pipeline = pipelines[args.pipeline]
+    retrieve_fn, answer_fn = pipelines[args.pipeline]
+    mode = "retrieval" if args.retrieval_only else "full"
+    model_note = "" if args.retrieval_only else f" with {settings.llm_model}"
+    print(f"Running '{args.pipeline}' ({mode}) on {len(questions)} '{args.split}' questions{model_note}")
+
     results = []
     for q in tqdm(questions):
         rec = {
@@ -94,13 +114,20 @@ def main():
         }
         start = time.time()
         try:
-            out = pipeline(q["question"])
-            rec["latency_s"] = round(time.time() - start, 1)  # pipeline time only, judge excluded
-            rec["answer"], rec["contexts"] = out["answer"], out["contexts"]
-            rec["refused"] = "NOT_FOUND" in out["answer"].upper()
-            if q["evidence"]:
-                rec["recall"] = evidence_recall(q["evidence"], out["contexts"])
-            rec["correct"] = judge(q, out["answer"])
+            if args.retrieval_only:
+                contexts = [h["text"] for h in retrieve_fn(q["question"])]
+                rec["latency_s"] = round(time.time() - start, 1)
+                rec["contexts"] = contexts
+                if q["evidence"]:
+                    rec["recall"] = evidence_recall(q["evidence"], contexts)
+            else:
+                out = answer_fn(q["question"])
+                rec["latency_s"] = round(time.time() - start, 1)  # pipeline time only, judge excluded
+                rec["answer"], rec["contexts"] = out["answer"], out["contexts"]
+                rec["refused"] = "NOT_FOUND" in out["answer"].upper()
+                if q["evidence"]:
+                    rec["recall"] = evidence_recall(q["evidence"], out["contexts"])
+                rec["correct"] = judge(q, out["answer"])
         except FatalLLMError as e:
             print(f"\nStopping the run: {e}")
             sys.exit(1)
@@ -108,17 +135,20 @@ def main():
             rec["error"] = f"{type(e).__name__}: {e}"
         results.append(rec)
 
-    summary = summarize(results)
+    summary = retrieval_summary(results) if args.retrieval_only else summarize(results)
     print(json.dumps(summary, indent=2))
-    if summary["errors"]:
-        first = next(r for r in results if r["error"])
-        print(f"\nWARNING: {summary['errors']} question(s) hit errors. First error:\n  {first['error'][:400]}")
+    failed = [r for r in results if r["error"]]
+    if failed:
+        print(f"\nWARNING: {len(failed)} question(s) hit errors. First error:\n  {failed[0]['error'][:400]}")
 
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    path = RESULTS_DIR / f"{args.pipeline}_{args.split}_{stamp}.json"
-    payload = {"pipeline": args.pipeline, "split": args.split, "model": settings.llm_model,
-               "timestamp": stamp, "summary": summary, "results": results}
+    path = RESULTS_DIR / f"{args.pipeline}_{args.split}_{mode}_{stamp}.json"
+    payload = {
+        "pipeline": args.pipeline, "split": args.split, "mode": mode,
+        "model": None if args.retrieval_only else settings.llm_model,
+        "timestamp": stamp, "summary": summary, "results": results,
+    }
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"\nSaved {path}")
 
