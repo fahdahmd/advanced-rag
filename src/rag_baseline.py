@@ -29,8 +29,8 @@ def retrieve(question: str, k: int = TOP_K) -> list[dict]:
     ]
 
 
-def answer(question: str) -> dict:
-    hits = retrieve(question)
+def generate(question: str, hits: list[dict]) -> dict:
+    """Ask the LLM to answer from the given chunks. Shared by every pipeline."""
     context = "\n\n".join(f"[{i}] ({h['company']})\n{h['text']}" for i, h in enumerate(hits, 1))
     text = chat(
         [
@@ -39,3 +39,7 @@ def answer(question: str) -> dict:
         ]
     )
     return {"answer": text, "contexts": [h["text"] for h in hits]}
+
+
+def answer(question: str) -> dict:
+    return generate(question, retrieve(question))
