@@ -1,7 +1,11 @@
 import json
 import re
 
-from bs4 import BeautifulSoup
+import warnings
+
+from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
+
+warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 
 from src.config import settings
 
@@ -25,6 +29,7 @@ ITEM_NAMES = {
     "9": "Changes in and Disagreements with Accountants",
     "9A": "Controls and Procedures",
     "9B": "Other Information",
+    "9C": "Foreign Jurisdictions That Prevent Inspections",
     "10": "Directors and Corporate Governance",
     "11": "Executive Compensation",
     "12": "Security Ownership",
@@ -78,24 +83,34 @@ def html_to_text(html: str) -> str:
 
 
 def split_sections(text: str) -> list[dict]:
-    """Split by 'Item X'. The table of contents also matches, so for each item
-    we keep the occurrence with the longest text (the real section)."""
     matches = list(ITEM_PATTERN.finditer(text))
-    best: dict[str, dict] = {}
+    candidates = []
     for i, m in enumerate(matches):
         end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
-        body = text[m.end():end].strip()
-        item = m.group(1).upper()
-        if item not in best or len(body) > len(best[item]["text"]):
-            best[item] = {
-                "item": item,
-                "title": ITEM_NAMES.get(item, ""),
+        candidates.append(
+            {
+                "item": m.group(1).upper(),
                 "start": m.start(),
-                "text": body,
+                "text": text[m.end():end].strip(),
             }
+        )
+
+    # The table of contents sits before the real Item 1, so find where the
+    # real body starts (Item 1 = the longest "Item 1" match) and ignore
+    # everything before it.
+    item1 = [c for c in candidates if c["item"] == "1"]
+    body_start = max(item1, key=lambda c: len(c["text"]))["start"] if item1 else 0
+
+    best: dict[str, dict] = {}
+    for c in candidates:
+        if c["start"] < body_start:
+            continue
+        item = c["item"]
+        if item not in best or len(c["text"]) > len(best[item]["text"]):
+            best[item] = {**c, "title": ITEM_NAMES.get(item, "")}
     return sorted(best.values(), key=lambda s: s["start"])
 
-
+KEY_ITEMS = ["1", "1A", "7", "8", "15"]
 def main():
     settings.parsed_dir.mkdir(parents=True, exist_ok=True)
     for html_path in sorted(settings.raw_dir.glob("*.html")):
@@ -107,7 +122,10 @@ def main():
         (settings.parsed_dir / f"{ticker}.json").write_text(
             json.dumps(out, indent=2), encoding="utf-8"
         )
-        print(f"{ticker}: {len(text):,} chars, items: {[s['item'] for s in sections]}")
+        sizes = {s["item"]: len(s["text"]) for s in sections}
+        key = ", ".join(f"Item {k}: {sizes.get(k, 0):,}" for k in KEY_ITEMS)
+        print(f"{ticker}: {len(text):,} chars | {key}")
+        print(f"  order: {[s['item'] for s in sections]}")
 
 
 if __name__ == "__main__":
