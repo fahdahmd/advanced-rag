@@ -12,6 +12,9 @@ REQUIRED = {"id", "split", "category", "question", "answer", "evidence", "absent
 
 def main():
     sys.stdout.reconfigure(encoding="utf-8")
+    if not EVAL_PATH.exists():
+        print(f"No question file yet. Create {EVAL_PATH} with one JSON object per line.")
+        sys.exit(1)
     filings = load_filings()
     texts = {t: normalize(full_text(f)) for t, f in filings.items()}
 
