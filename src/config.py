@@ -19,10 +19,11 @@ class Settings(BaseSettings):
     data_dir: Path = ROOT / "data"
     raw_dir: Path = ROOT / "data" / "raw"
     chroma_dir: Path = ROOT / "chroma_db"
+    parsed_dir: Path = ROOT / "data" / "parsed"
 
     # LLM (via OpenRouter)
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
-    llm_model: str = "openai/gpt-4o-mini"  # verify the ID on openrouter.ai/models
+    llm_model: str = "nvidia/nemotron-3-ultra-550b-a55b:free"
 
     # Local models (unchanged)
     embedding_model: str = "BAAI/bge-small-en-v1.5"
