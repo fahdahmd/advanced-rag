@@ -10,7 +10,8 @@ warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 from src.config import settings
 
 ITEM_PATTERN = re.compile(
-    r"^\s*item\s+(\d{1,2}[abc]?)\s*[\.\:\-–—]?", re.IGNORECASE | re.MULTILINE
+    r"^[ \t]*item[ \t]+(\d{1,2}[abc]?)(?:[ \t]*[\.\:\-–—]|[ \t]+(?=[A-Za-z]))",
+    re.IGNORECASE | re.MULTILINE,
 )
 
 ITEM_NAMES = {
