@@ -108,7 +108,8 @@ def main():
     summary = summarize(results)
     print(json.dumps(summary, indent=2))
     if summary["errors"]:
-        print(f"\nWARNING: {summary['errors']} question(s) hit errors. Check 'error' in the results file and rerun.")
+        first = next(r for r in results if r["error"])
+        print(f"\nWARNING: {summary['errors']} question(s) hit errors. First error:\n  {first['error'][:400]}")
 
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
